@@ -81,5 +81,5 @@ void main()
 		ambient += lights[i].ambient;
 	}
 	
-	FragColor = vec4(color, xFragDepth / (far - near));
+	FragColor = vec4(color, xFragDepth / 10.0f);// (far - near));
 } 
