@@ -15,10 +15,10 @@ float depthToZ(float depth) {
 
 void main()
 {
-	vec3 bgColor = texture(backgroundColorTexture, xTexCoord).xyz;
-	float bgDepth = texture(backgroundDepthTexture, xTexCoord).x * 2;
+	vec3 bgColor = texture(backgroundColorTexture, xTexCoord).rgb;
+	float bgDepth = texture(backgroundDepthTexture, xTexCoord).r;
 	//float objZ = depthToZ(objDepth) * 0.2;
 	
-	FragColor = vec4(bgColor, 1.0f);
-	gl_FragDepth = bgDepth;
+	FragColor = vec4(bgColor, bgDepth);
+	//gl_FragDepth = bgDepth;
 } 

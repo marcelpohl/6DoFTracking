@@ -15,6 +15,7 @@ public:
 	void attachColorTexture(const GLchar* path, bool flip);
 	void attachDepthTexture();
 	void attachDepthTexture(const GLchar* path, bool flip);
+	void attachRGBDTexture();
 	void attachStencilTexture();
 	void removeColorTextures();
 	void removeDepthTexture();

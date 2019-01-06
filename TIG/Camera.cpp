@@ -13,6 +13,7 @@ Camera::Camera(GLFWwindow* window, glm::vec3* center, int width, int height)
 	m_sensitivity = 0.01f;
 	m_xOld = width/2.0f;
 	m_yOld = height/2.0f;
+	m_roll = 0.0f;
 
 	m_viewMatrix = glm::lookAt(m_center + m_cameraPos, m_center, m_up);
 }
@@ -54,6 +55,11 @@ void Camera::setSensitiviy(float sensitivity)
 }
 
 
+void Camera::setRoll(float roll)
+{
+	m_roll = roll;
+}
+
 void Camera::setViewMatrix(glm::mat4 viewMat)
 {
 	m_viewMatrix = viewMat;
@@ -93,11 +99,17 @@ void Camera::update(double deltaTime)
 		m_radius += 5.0f * (float)deltaTime;
 	if (m_radius < 0.1f) m_radius = 0.1f;
 
+	// TODO: roll?
+	if (glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS)
+		m_roll += 2.0f * (float)deltaTime;
+	if (glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+		m_roll -= 2.0f * (float)deltaTime;
+
 	m_cameraPos.x = m_center.x + m_radius * sin(m_theta) * sin(m_phi);
 	m_cameraPos.y = m_center.y + m_radius * cos(m_theta);
 	m_cameraPos.z = m_center.z + m_radius * sin(m_theta) * cos(m_phi);
 
-	m_viewMatrix = glm::lookAt(m_cameraPos, m_center, m_up);
+	m_viewMatrix = glm::rotate(glm::lookAt(m_cameraPos, m_center, m_up), m_roll, m_cameraPos - m_center);
 }
 
 glm::mat4* Camera::getViewMatrix()

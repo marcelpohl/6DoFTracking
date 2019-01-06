@@ -62,6 +62,17 @@ void FBO::attachDepthTexture(const GLchar* path, bool flip)
 }
 
 
+void FBO::attachRGBDTexture()
+{
+	bind();
+
+	auto tex = new Texture(m_width, m_height, TextureType::RGBD);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + m_colorTextures.size(), GL_TEXTURE_2D, tex->getId(), 0);
+	m_colorTextures.push_back(tex);
+
+	unbind();
+}
+
 void FBO::attachStencilTexture()
 {
 	bind();

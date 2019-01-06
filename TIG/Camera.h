@@ -4,6 +4,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/ext.hpp>
 #include <GLFW/glfw3.h>
 
 #include <vector>
@@ -25,6 +26,7 @@ public:
 	void setPhi(float phi);
 	void setTheta(float theta);
 	void setSensitiviy(float sensitivity);
+	void setRoll(float roll);
 
 	void setViewMatrix(glm::mat4 viewMat);
 
@@ -44,6 +46,7 @@ private:
 
 	float m_theta;
 	float m_phi;
+	float m_roll;
 	float m_radius;
 	float m_sensitivity;
 	float m_xOld;
