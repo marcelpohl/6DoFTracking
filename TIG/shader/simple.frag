@@ -35,22 +35,27 @@ uniform float far;
 
 vec3 calcLight(Material mat, Light light, vec3 normal, vec3 viewDir, vec3 fragPos, vec2 texCoord)
 {
-	vec3 lightDir = normalize(light.position - fragPos);
+	//vec3 lightDir = normalize(light.position - fragPos); 	// point light
+	vec3 lightDir = normalize(light.position);				// directional light
 	vec3 reflectDir = reflect(-lightDir, normal);
-
-	// diffuse lighting
+	
+	// ambient and diffuse lighting
 	vec3 diffuseLight = max(dot(normal, lightDir), 0.0) * light.diffuse;
 	vec3 diffuse;
+	vec3 ambient;
 	if (mat.hasDiffuseTex) {
-		diffuse = diffuseLight * texture(mat.diffuseTex, texCoord).rgb;
+		vec3 col = texture(mat.diffuseTex, texCoord).rgb;
+		diffuse = diffuseLight * col;
+		ambient = light.ambient * col;
 	} else {
 		diffuse = diffuseLight * mat.diffuse;
+		ambient = light.ambient * mat.ambient;
 	}
 	
 	// ambient occlusion
+	float ao = 1.0f;
 	if (mat.hasAmbientOcclusionTex) {
-		float ao = texture(mat.ambientOcclusionTex, texCoord).r;
-		diffuse = diffuse * ao;
+		ao = texture(mat.ambientOcclusionTex, texCoord).r;
 	}
 	
 	// specular lighting
@@ -64,7 +69,7 @@ vec3 calcLight(Material mat, Light light, vec3 normal, vec3 viewDir, vec3 fragPo
 	}
 	
 	// output color
-	return light.ambient + diffuse + specular;
+	return (ambient + diffuse + specular) * ao;
 }
 
 void main()
@@ -81,5 +86,5 @@ void main()
 		ambient += lights[i].ambient;
 	}
 	
-	FragColor = vec4(color, xFragDepth / 10.0f);// (far - near));
+	FragColor = vec4(color, xFragDepth / (far - near));
 } 

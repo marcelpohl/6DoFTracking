@@ -17,8 +17,6 @@ Texture::Texture(const GLchar* texturePath, bool flip)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-	std::cout << texturePath << ": " << ID << std::endl;
-	
 	int width, height, nrChannels;
 	stbi_set_flip_vertically_on_load(flip);
 	unsigned char *data = stbi_load(texturePath, &width, &height, &nrChannels, 0);
