@@ -9,6 +9,7 @@
 #include <string.h>
 #include <random>
 #include <chrono>
+#include <vector>
 
 #define STBI_MSC_SECURE_CRT
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -53,9 +54,10 @@ ShaderPostProcessing* postProcessShader = nullptr;
 
 void generateImages(GLFWwindow* window, std::string sources, std::string dest, std::string filename);
 
-void saveImageToFile(FBO* fbo, std::string filename, int width, int height);
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void saveImageToFile(FBO* fbo, std::string filename, int width, int height, const cv::Rect* roi);
 void handleInput(GLFWwindow* window);
+
+cv::Rect* getBoundingBox(FBO* fbo, int width, int height);
 
 
 int main()
@@ -91,7 +93,6 @@ int main()
 		return -1;
 	}
 	glfwMakeContextCurrent(window);
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 
@@ -184,7 +185,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	std::mt19937 rng(seed);
 	std::uniform_real_distribution<float> distributionFullCircle(0, 2 * glm::pi<float>());
 	std::uniform_real_distribution<float> distributionHalfCircle(0, glm::pi<float>());
-	std::uniform_real_distribution<float> distributionRadius(2.5f, 3.6f);
+	std::uniform_real_distribution<float> distributionRadius(1.2f, 3.6f);
 
 	float phi = distributionFullCircle(rng);
 	float theta = distributionHalfCircle(rng);
@@ -201,7 +202,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	auto observedPose = camera->getViewMatrix();
 	auto observedCamPos = *camera->getCameraPos();
 
-	std::uniform_real_distribution<float> distributionTranslation(-0.2f, 0.2f);
+	std::uniform_real_distribution<float> distributionTranslation(-0.1f, 0.1f);
 	std::uniform_real_distribution<float> distributionRotation(-10.0f, 10.0f);
 	glm::vec3 translationTensor(distributionTranslation(rng), distributionTranslation(rng), distributionTranslation(rng));
 	glm::vec3 rotationTensor(glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)));
@@ -231,7 +232,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	lightPos.x = glm::sin(theta) * glm::sin(phi);
 	lightPos.y = glm::cos(theta);
 	lightPos.z = glm::sin(theta) * glm::cos(phi);
-	Light* lightObs = new Light(lightPos, glm::vec3(0.65f, 0.65f, 0.65f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.26f, 0.26f, 0.26f));
+	Light* lightObs = new Light(lightPos, glm::vec3(0.65f, 0.65f, 0.65f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.4f, 0.4f, 0.4f));
 
 	auto predLightPos = glm::vec4(0.0f, -1.0f, 0.0f, 1.0f) * predictedPose;
 	Light* lightPred = new Light(glm::normalize(glm::vec3(predLightPos.x, predLightPos.y, predLightPos.z)), glm::vec3(0.65f, 0.65f, 0.65f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.26f, 0.26f, 0.26f));
@@ -338,7 +339,6 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	//projection = glm::perspective(glm::radians(60.0f), (float)imgWidth / (float)imgHeight, 0.1f, 10.0f);
 
 
-
 	//----------------------------------------
 	// render predicted Pose image
 	//----------------------------------------
@@ -351,7 +351,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 	glm::mat4 model(1.0f);
-	model = glm::scale(model, glm::vec3(0.1f, 0.1f, 0.1f));
+	model = glm::scale(model, glm::vec3(0.05f, 0.05f, 0.05f));
 	camera->update(0);
 
 	phongShader->use();
@@ -372,6 +372,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
 	glStencilMask(0x00);
 
+	cv::Rect* boundingBox = getBoundingBox(fbo, imgWidth, imgHeight);
 
 	fbo2->bind();
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -382,7 +383,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 
 	fbo2->unbind();
 
-	saveImageToFile(fbo2, dest + filename + "_predicted", imgWidth, imgHeight);
+	saveImageToFile(fbo2, dest + filename + "_predicted", imgWidth, imgHeight, boundingBox);
 
 
 
@@ -429,7 +430,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 
 	fbo2->unbind();
 
-	saveImageToFile(fbo2, dest + filename + "_observed", imgWidth, imgHeight);
+	saveImageToFile(fbo2, dest + filename + "_observed", imgWidth, imgHeight, boundingBox);
 
 
 	// save transformation tensor to file
@@ -449,44 +450,112 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	if (gaussNoiseTexture != nullptr) {
 		delete gaussNoiseTexture;
 	}
+	if (boundingBox != nullptr) {
+		delete boundingBox;
+	}
 }
 
 
-void saveImageToFile(FBO* fbo, std::string filename, int width, int height)
+void saveImageToFile(FBO* fbo, std::string filename, int width, int height, const cv::Rect* boundingBox)
 {
-	unsigned long imageSize = width * height* 4;
-	unsigned char *data = new unsigned char[imageSize];
-
 	cv::Mat temp(height, width, CV_8UC4);
 	cv::Mat img(height, width, CV_8UC4);
 
-
+	// read image
 	fbo->bind();
-	glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data);
-	glReadPixels(0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, temp.data);
+	glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, temp.data);
 	fbo->unbind();
 
 	cv::flip(temp, img, 0);
-	
-	//cv::namedWindow("Display window", cv::WINDOW_AUTOSIZE);
-	//cv::imshow("Display window", img);
+
+	//cv::Mat drawing(img);
+	//cv::rectangle(drawing, *boundingBox, cv::Scalar(255, 0, 0), 2, 8, 0);
+	//cv::namedWindow("BoundingBox", cv::WINDOW_AUTOSIZE);
+	//cv::imshow("BoundingBox", drawing);
 	//cv::waitKey(0);
 
+	// crop image to bounding box
+	cv::Mat ROI(img, *boundingBox);
+	cv::Mat cropped;
+	ROI.copyTo(cropped);
+
+	// scale to desired size
+	cv::Mat out(150, 150, CV_8UC4);
+	cv::resize(cropped, out, cv::Size(150, 150));
+
 	std::string path = filename + ".tga";
-	stbi_flip_vertically_on_write(1);
-	stbi_write_tga(path.c_str(), width, height, 4, data);
-
-	delete data;
-}
-
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
-	glViewport(0, 0, width, height);
+	stbi_write_tga(path.c_str(), out.cols, out.rows, 4, out.data);
 }
 
 void handleInput(GLFWwindow* window)
 {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
+}
+
+cv::Rect* getBoundingBox(FBO* fbo, int width, int height)
+{
+	cv::Mat temp(height, width, CV_8UC4);
+	cv::Mat img(height, width, CV_8UC4);
+
+	fbo->bind();
+	glReadPixels(0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, temp.data);
+	fbo->unbind();
+
+	cv::flip(temp, img, 0);
+
+	int channels = img.channels();
+	int nRows = img.rows;
+	int nCols = img.cols * channels;
+
+	int minX = INT_MAX, maxX = 0, minY = INT_MAX, maxY = 0;
+
+	bool continuous = img.isContinuous();
+	if (continuous)
+	{
+		nCols *= nRows;
+		nRows = 1;
+	}
+
+	int i, j;
+	const uchar* p;
+	for (i = 0; i < nRows; i++)
+	{
+		p = img.ptr<uchar>(i);
+		for (j = 0; j < nCols; j += channels)
+		{
+			if (p[j] > 0 || p[j+1] > 0 || p[j+2] > 0) {
+				if (continuous) {
+					auto x = (j % (img.cols * channels)) / channels;
+					auto y = (j / (img.cols * channels));
+					if (y < minY) minY = y;
+					if (y > maxY) maxY = y;
+					if (x < minX) minX = x;
+					if (x > maxX) maxX = x;
+				}
+				else {
+					if (i < minY) minY = i;
+					if (i > maxY) maxY = i;
+					if (j < minX) minX = j;
+					if (j > maxX) maxX = j;
+				}
+			}
+		}
+	}
+
+	// TODO: make boundingbox 15% bigger
+	auto bbWidth = maxX - minX;
+	auto bbHeight = maxY - minY;
+	auto center = cv::Point2i(minX + bbWidth / 2, minY + bbHeight / 2);
+	
+	auto bbSide = (bbWidth > bbHeight) ? bbWidth : bbHeight;
+	bbSide = static_cast<int>(ceil(bbSide * 1.15));
+
+	return new cv::Rect(
+		cv::max(center.x - bbSide / 2, 0),
+		cv::max(center.y - bbSide / 2, 0),
+		bbSide, // (center.x + bbSide / 2 <= img.cols) ? bbSide : img.cols - center.x,
+		bbSide // (center.y + bbSide / 2 <= img.rows) ? bbSide : img.rows - center.y
+	);
+
 }
