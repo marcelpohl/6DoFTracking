@@ -173,6 +173,10 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	int imgWidth = colorTex.getWidth();
 	int imgHeight = colorTex.getHeight();
 
+	depthBlendShader->use();
+	depthBlendShader->addTexture(colorTex.getId(), "backgroundColorTexture");
+	depthBlendShader->addTexture(depthTex.getId(), "backgroundDepthTexture");
+
 
 	// initialize camera
 	//----------------------------------------
@@ -180,7 +184,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	std::mt19937 rng(seed);
 	std::uniform_real_distribution<float> distributionFullCircle(0, 2 * glm::pi<float>());
 	std::uniform_real_distribution<float> distributionHalfCircle(0, glm::pi<float>());
-	std::uniform_real_distribution<float> distributionRadius(2.0f, 3.0f);
+	std::uniform_real_distribution<float> distributionRadius(2.5f, 3.6f);
 
 	float phi = distributionFullCircle(rng);
 	float theta = distributionHalfCircle(rng);
@@ -195,23 +199,25 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 
 	camera->update(0);
 	auto observedPose = camera->getViewMatrix();
+	auto observedCamPos = *camera->getCameraPos();
 
-	std::uniform_real_distribution<float> distributionTranslation(-0.02f, 0.02f);
+	std::uniform_real_distribution<float> distributionTranslation(-0.2f, 0.2f);
 	std::uniform_real_distribution<float> distributionRotation(-10.0f, 10.0f);
-	glm::vec3 translation(distributionTranslation(rng), distributionTranslation(rng), distributionTranslation(rng));
-	glm::vec3 rotation(glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)));
+	glm::vec3 translationTensor(distributionTranslation(rng), distributionTranslation(rng), distributionTranslation(rng));
+	glm::vec3 rotationTensor(glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)), glm::radians(distributionRotation(rng)));
 
 	auto predictedPose = glm::translate(
 		glm::rotate(
 			glm::rotate(
-				glm::rotate(*observedPose, -rotation.z, glm::vec3(1.0f, 0.0f, 0.0f)),
-				-rotation.y,
+				glm::rotate(*observedPose, -rotationTensor.z, glm::vec3(1.0f, 0.0f, 0.0f)),
+				-rotationTensor.y,
 				glm::vec3(0.0f, 1.0f, 0.0f)),
-			-rotation.x,
+			-rotationTensor.x,
 			glm::vec3(0.0f, 0.0f, 1.0f)
 		),
-		-translation
+		-translationTensor
 	);
+	auto predictedCamPos = observedCamPos - translationTensor;
 
 
 	// define light sources
@@ -233,26 +239,43 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 
 	// gaussian noise texture
 	//-------------------------
-	std::vector<float> gaussNoiseData;
-	std::uniform_real_distribution<float> sigmaDistr(0.0f, 2.0f);
-	float mean = 0.0f;
-	float sigma = sigmaDistr(rng);
-	//float sigma = 2.0f;
+	Texture* gaussNoiseTexture = nullptr;
+	std::uniform_int_distribution<int> probabilityDistr(0, 100);
+	int p = probabilityDistr(rng);
+	if (p <= 95) {
+		std::vector<float> gaussNoiseData;
+		std::uniform_real_distribution<float> sigmaDistr(0.0f, 2.0f);
+		float mean = 0.0f;
+		float sigma = sigmaDistr(rng);
 
-	long size = imgWidth * imgHeight;
-	std::normal_distribution<float> normalDist(mean, sigma);
-	for (int i = 0; i < size; i++) {
-		float val = (normalDist(rng) / 255) + 0.5f;
-		gaussNoiseData.push_back(val);
+		long size = imgWidth * imgHeight;
+		std::normal_distribution<float> normalDist(mean, sigma);
+		for (int i = 0; i < size; i++) {
+			float val = (normalDist(rng) / 255) + 0.5f;
+			gaussNoiseData.push_back(val);
+		}
+		gaussNoiseTexture = new Texture(imgWidth, imgHeight, TextureType::Grey, gaussNoiseData);
+
+		postProcessShader->use();
+		postProcessShader->setBool("hasNoise", true);
+		postProcessShader->addTexture(gaussNoiseTexture->getId(), "noiseTexture");
 	}
-	Texture* gaussNoiseTexture = new Texture(imgWidth, imgHeight, TextureType::Grey, gaussNoiseData);
+	else {
+		postProcessShader->use();
+		postProcessShader->setBool("hasNoise", false);
+	}
 
 
 	// additional post processing parameters
 	//--------------------------
 	std::uniform_real_distribution<float> colShiftDistr(-0.05f, 0.05f);
 	float colorShift = colShiftDistr(rng);
-	int blurRadius = 1;
+
+	p = probabilityDistr(rng);
+	int blurRadius = 0;
+	if (p <= 40) {
+		blurRadius = 1;
+	}
 
 
 	// FBO for post processing
@@ -264,13 +287,9 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	FBO *fbo2 = new FBO(imgWidth, imgHeight);
 	fbo2->attachRGBDTexture();
 
-	depthBlendShader->use();
-	depthBlendShader->addTexture(colorTex.getId(), "backgroundColorTexture");
-	depthBlendShader->addTexture(depthTex.getId(), "backgroundDepthTexture");
 
 	postProcessShader->use();
 	postProcessShader->addTexture(fbo->getColorTexture(0), "screenTexture");
-	postProcessShader->addTexture(gaussNoiseTexture->getId(), "noiseTexture");
 	postProcessShader->set1i("radius", blurRadius);
 	postProcessShader->set1i("width", imgWidth);
 	postProcessShader->set1i("height", imgHeight);
@@ -319,8 +338,9 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	//projection = glm::perspective(glm::radians(60.0f), (float)imgWidth / (float)imgHeight, 0.1f, 10.0f);
 
 
+
 	//----------------------------------------
-	// render observed Pose image
+	// render predicted Pose image
 	//----------------------------------------
 	fbo->bind();
 
@@ -332,6 +352,49 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 
 	glm::mat4 model(1.0f);
 	model = glm::scale(model, glm::vec3(0.1f, 0.1f, 0.1f));
+	camera->update(0);
+
+	phongShader->use();
+
+	phongShader->clearLights();
+	phongShader->addLight(lightPred);
+
+	phongShader->setMaterial(material1);
+	phongShader->setMat4f("model", model);
+	phongShader->setMat4f("view", predictedPose);
+	phongShader->setMat4f("projection", projection);
+	phongShader->set3f("camPos", predictedCamPos);
+	phongShader->set1f("near", ZNEAR);
+	phongShader->set1f("far", ZFAR);
+
+	object1->Draw(phongShader);
+
+	glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+	glStencilMask(0x00);
+
+
+	fbo2->bind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+	postProcessShader->use();
+	postProcessShader->update();
+	postProcessShader->draw();
+
+	fbo2->unbind();
+
+	saveImageToFile(fbo2, dest + filename + "_predicted", imgWidth, imgHeight);
+
+
+
+	//----------------------------------------
+	// render observed Pose image
+	//----------------------------------------
+	fbo->bind();
+
+	glStencilFunc(GL_ALWAYS, 1, 0xFF);
+	glStencilMask(0xFF);
+	
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 	phongShader->use();	
 
@@ -342,7 +405,7 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	phongShader->setMat4f("model", model);
 	phongShader->setMat4f("view", *observedPose);
 	phongShader->setMat4f("projection", projection);
-	phongShader->set3f("camPos", *camera->getCameraPos());
+	phongShader->set3f("camPos", observedCamPos);
 	phongShader->set1f("near", ZNEAR);
 	phongShader->set1f("far", ZFAR);
 
@@ -369,54 +432,23 @@ void generateImages(GLFWwindow* window, std::string sources, std::string dest, s
 	saveImageToFile(fbo2, dest + filename + "_observed", imgWidth, imgHeight);
 
 
-
+	// save transformation tensor to file
 	//----------------------------------------
-	// render predicted Pose image
-	//----------------------------------------
-	fbo->bind();
-
-	glStencilFunc(GL_ALWAYS, 1, 0xFF);
-	glStencilMask(0xFF);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-	camera->update(0);
-
-	phongShader->use();
-
-	phongShader->clearLights();
-	phongShader->addLight(lightPred);
-
-	phongShader->setMaterial(material1);
-	phongShader->setMat4f("model", model);
-	phongShader->setMat4f("view", predictedPose);
-	phongShader->setMat4f("projection", projection);
-	phongShader->set3f("camPos", *camera->getCameraPos());
-	phongShader->set1f("near", ZNEAR);
-	phongShader->set1f("far", ZFAR);
-
-	object1->Draw(phongShader);
-	
-	glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-	glStencilMask(0x00);
-
-
-	fbo2->bind();
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-	postProcessShader->use();
-	postProcessShader->update();
-	postProcessShader->draw();
-
-	fbo2->unbind();
-
-	saveImageToFile(fbo2, dest + filename + "_predicted", imgWidth, imgHeight);
+	std::ofstream fileStream;
+	fileStream.open(dest + filename + ".txt");
+	fileStream << translationTensor.x << " " << translationTensor.y << " " << translationTensor.z << " ";
+	fileStream << rotationTensor.x << " " << rotationTensor.y << " " << rotationTensor.z << " " << "\n";
+	fileStream.close();
 
 
 	delete fbo;
 	delete fbo2;
 	delete lightObs;
 	delete lightPred;
+
+	if (gaussNoiseTexture != nullptr) {
+		delete gaussNoiseTexture;
+	}
 }
 
 
